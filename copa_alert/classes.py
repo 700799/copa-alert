@@ -1,106 +1,89 @@
-"""Filtering and change detection for COPA class listings.
+"""Filtering and change detection for COPA sessions.
 
-Nothing in here touches the network, so it can be tested without logging in.
+Nothing in here touches the network, so it can be tested without a browser.
+
+The schedule only shows roughly the next two weeks, so new dates roll into
+view every day. A session counts as added only when it shows up on a date
+that an earlier check could already see; sessions on dates that just came
+into view are recorded without an alert.
 """
 
-import hashlib
 import json
-import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
-TARGET_DAYS = {"friday", "saturday", "sunday"}
-TARGET_MIN_AGE = 12
-TARGET_MAX_AGE = 18
-
-_DAY_ALIASES = {
-    "fri": "friday",
-    "sat": "saturday",
-    "sun": "sunday",
-    "mon": "monday",
-    "tue": "tuesday",
-    "tues": "tuesday",
-    "wed": "wednesday",
-    "thu": "thursday",
-    "thur": "thursday",
-    "thurs": "thursday",
-}
+TARGET_PROGRAM = "12 - 19yrs"
+TARGET_WEEKDAYS = {4, 5, 6}  # Friday, Saturday, Sunday
 
 
 @dataclass(frozen=True)
-class ClassListing:
-    name: str
-    ages: str  # as shown on the site, e.g. "Ages 12-18"
-    day: str  # e.g. "Saturday" or "Sat"
-    start_time: str  # e.g. "10:00 AM"
-    date: str = ""  # specific date, if the site lists one
-    instructor: str = ""
-    # Deliberately no enrollment or spots-left field: those changes must not
-    # make a class look new.
+class Session:
+    event_id: str
+    program: str  # age group, e.g. "12 - 19yrs"
+    name: str  # e.g. "SC: SoccerBot 360 (LV1)"
+    date: str  # YYYY-MM-DD
+    start: str  # local wall time, HH:MM
+    end: str
 
-    def key(self) -> str:
-        """Stable fingerprint of the class's identity.
-
-        Stored as a hash so the public repo doesn't publish the schedule.
-        """
-        parts = [self.name, normalize_day(self.day) or self.day, self.start_time, self.date, self.instructor]
-        text = "|".join(" ".join(p.lower().split()) for p in parts)
-        return hashlib.sha256(text.encode()).hexdigest()
-
-
-def normalize_day(day: str) -> str | None:
-    word = re.sub(r"[^a-z]", "", day.lower())
-    if word in _DAY_ALIASES.values():
-        return word
-    return _DAY_ALIASES.get(word)
+    @classmethod
+    def from_row(cls, row: dict) -> "Session":
+        # The site labels local times with "Z"; the UI shows them unconverted.
+        return cls(
+            event_id=row["s_eventid"],
+            program=(row["programname"] or "").strip(),
+            name=(row["teamname"] or row["leaguedesc"] or "").strip(),
+            date=row["start_date"],
+            start=row["s_eventstart"][11:16],
+            end=row["s_eventend"][11:16],
+        )
 
 
-def parse_age_range(ages: str) -> tuple[int, int] | None:
-    """Turn text like "Ages 12-18", "12 – 18 yrs" or "13+" into (min, max)."""
-    m = re.search(r"(\d{1,2})\s*(?:-|–|—|to)\s*(\d{1,2})", ages)
-    if m:
-        return int(m.group(1)), int(m.group(2))
-    m = re.search(r"(\d{1,2})\s*\+", ages)
-    if m:
-        return int(m.group(1)), 99
-    return None
+def parse_schedule(payload: list) -> list[Session]:
+    """Turn the schedule query's column-oriented result into sessions."""
+    cols = payload[0]["cols"]
+    data = payload[0]["data"][0]
+    return [Session.from_row(dict(zip(cols, values))) for values in zip(*data)]
 
 
-def is_target(listing: ClassListing) -> bool:
-    """True for Friday-Sunday classes whose age range lies within 12-18."""
-    if normalize_day(listing.day) not in TARGET_DAYS:
-        return False
-    age_range = parse_age_range(listing.ages)
-    if age_range is None:
-        return False
-    low, high = age_range
-    return TARGET_MIN_AGE <= low and high <= TARGET_MAX_AGE
+def is_target(s: Session) -> bool:
+    return s.program == TARGET_PROGRAM and date.fromisoformat(s.date).weekday() in TARGET_WEEKDAYS
 
 
-def load_seen(path: Path) -> set[str] | None:
-    """Return the stored fingerprints, or None if there is no baseline yet."""
+@dataclass
+class State:
+    seen: dict[str, str]  # event id -> date
+    seen_through: str  # latest date visible in a previous check
+
+
+def load_state(path: Path) -> State | None:
+    """Return the stored state, or None if there is no baseline yet."""
     if not path.exists():
         return None
-    return set(json.loads(path.read_text())["seen"])
+    raw = json.loads(path.read_text())
+    return State(seen=raw["seen"], seen_through=raw["seen_through"])
 
 
-def save_seen(path: Path, seen: set[str]) -> None:
-    path.write_text(json.dumps({"seen": sorted(seen)}, indent=2) + "\n")
+def save_state(path: Path, state: State) -> None:
+    path.write_text(json.dumps({"seen_through": state.seen_through, "seen": dict(sorted(state.seen.items()))}, indent=1) + "\n")
 
 
-def find_new(listings: list[ClassListing], seen: set[str]) -> list[ClassListing]:
-    """Target classes whose fingerprint has never been seen before.
+def update(state: State | None, sessions: list[Session]) -> tuple[list[Session], State]:
+    """Return (newly added target sessions, new state)."""
+    targets = [s for s in sessions if is_target(s)]
+    latest = max((s.date for s in sessions), default="")
+    if state is None:
+        return [], State({s.event_id: s.date for s in targets}, latest)
 
-    `seen` only ever grows, so a class that drops off the page while full and
-    comes back when a spot opens is not reported as new.
-    """
-    new = []
-    keys = set()
-    for listing in listings:
-        if not is_target(listing):
-            continue
-        k = listing.key()
-        if k not in seen and k not in keys:
-            keys.add(k)
-            new.append(listing)
-    return new
+    added = []
+    for s in targets:
+        if s.event_id not in state.seen and s.date <= state.seen_through:
+            added.append(s)
+    added.sort(key=lambda s: (s.date, s.start, s.name))
+
+    # Forget dates that have left the site's window. Using the feed's own
+    # earliest date avoids time zone mistakes about what "today" is.
+    earliest = min((s.date for s in sessions), default="")
+    seen = {k: v for k, v in state.seen.items() if v >= earliest}
+    seen.update({s.event_id: s.date for s in targets})
+    return added, State(seen, max(state.seen_through, latest))

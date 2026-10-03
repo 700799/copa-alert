@@ -1,21 +1,26 @@
 import os
 import smtplib
+from datetime import date, datetime
 from email.message import EmailMessage
 
-from .classes import ClassListing
+from .classes import Session
+
+BOOKING_URL = "https://apps.daysmartrecreation.com/dash/x/#/online/copa/login"
 
 
-def format_email(new: list[ClassListing]) -> EmailMessage:
+def _time(hhmm: str) -> str:
+    return datetime.strptime(hhmm, "%H:%M").strftime("%I:%M %p").lstrip("0")
+
+
+def format_email(added: list[Session]) -> EmailMessage:
     msg = EmailMessage()
-    noun = "class" if len(new) == 1 else "classes"
-    msg["Subject"] = f"COPA: {len(new)} new 12-18 weekend {noun}"
+    noun = "session" if len(added) == 1 else "sessions"
+    msg["Subject"] = f"COPA: {len(added)} new 12-19 weekend {noun}"
     lines = []
-    for c in new:
-        when = " ".join(filter(None, [c.day, c.date, c.start_time]))
-        extra = f" with {c.instructor}" if c.instructor else ""
-        lines.append(f"- {c.name} ({c.ages}): {when}{extra}")
-    lines.append("")
-    lines.append("Book: https://copastc.com/membership-scheduling/")
+    for s in added:
+        day = date.fromisoformat(s.date).strftime("%a %b %-d")
+        lines.append(f"- {day}, {_time(s.start)}-{_time(s.end)}: {s.name}")
+    lines += ["", f"Book on DaySmart: {BOOKING_URL}"]
     msg.set_content("\n".join(lines))
     return msg
 

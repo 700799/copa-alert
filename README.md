@@ -1,36 +1,36 @@
 # copa-alert
 
-Emails you when a new class for ages 12–18 appears on a Friday, Saturday or
-Sunday on the [COPA membership scheduling page](https://copastc.com/membership-scheduling/).
-Changes in enrollment or spots left never trigger an alert.
+Emails you when a new 12–19 session is added on a Friday, Saturday or Sunday
+to the [COPA schedule](https://copastc.com/membership-scheduling/). Changes in
+spots left never trigger an alert.
 
-A GitHub Actions workflow runs every 90 minutes. It signs in with a headless
-browser, reads the schedule, and compares the weekend 12–18 classes with
-`seen.json`. That file holds hashes, not class details, so this public repo
-doesn't publish the schedule. The first run only records a baseline.
+A GitHub Actions workflow runs every 90 minutes. It opens the public schedule
+(an embedded Retool app, no login needed) in a headless browser, reads the
+sessions the page loads, and compares the 12–19 weekend sessions with
+`seen.json`.
 
-## Status
-
-The login and page-reading steps in `copa_alert/scraper.py` are still TODO.
-The site couldn't be reached while this was written.
+The schedule only shows about two weeks ahead, so new dates come into view
+every day. To avoid an email for the regular schedule each week, a session
+counts as added only when it appears on a date an earlier check could
+already see. The first run only records a baseline.
 
 ## Setup
 
 1. Add these under **Settings → Secrets and variables → Actions → Secrets**:
-   - `COPA_ACCESS_CODE`: the code used to sign in
    - `GMAIL_USER`: the Gmail address that sends the alert
    - `GMAIL_APP_PASSWORD`: a Gmail [app password](https://myaccount.google.com/apppasswords) (needs 2-step verification)
    - `ALERT_TO` (optional): where to send alerts; defaults to `GMAIL_USER`
-2. Run **Actions → Check for new classes → Run workflow** once to check it works.
-3. Turn on the schedule: under **Settings → Secrets and variables → Actions →
-   Variables**, add `ALERTS_ENABLED` with value `true`.
+2. Run **Actions → Check for new classes → Run workflow** once to record the
+   baseline.
 
-If a run finds no classes at all (for example, the login broke), it fails
+If a run finds no sessions at all (for example, the page changed), it fails
 without changing `seen.json`, and GitHub emails you about the failed run.
 
-## Tests
+## Running locally
 
 ```
-pip install pytest
+pip install -r requirements.txt pytest
+python -m playwright install chromium
 python -m pytest
+python -m copa_alert --dry-run   # prints what would be emailed; sends and saves nothing
 ```

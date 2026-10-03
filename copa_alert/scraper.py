@@ -1,41 +1,33 @@
-"""Logs in to the COPA scheduling page and reads the class listings.
+"""Opens the public COPA schedule and reads the sessions it loads.
 
-TODO: the login steps and the page structure are not known yet, because the
-site could not be reached while this was written. Everything that depends on
-them is in `log_in` and `read_listings` below.
+The schedule on copastc.com/membership-scheduling/ is an embedded Retool app.
+When it opens, it downloads every session for about the next two weeks in one
+request and then filters on screen, so the page is loaded once, normally, and
+that download is read. No login is needed.
 """
 
+import json
 import os
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import sync_playwright
 
-from .classes import ClassListing
+from .classes import Session, parse_schedule
 
-SCHEDULE_URL = os.environ.get("COPA_SCHEDULE_URL", "https://copastc.com/membership-scheduling/")
-
-
-def log_in(page: Page) -> None:
-    """Get past the Clerk sign-in so the schedule is visible.
-
-    Credentials come only from environment variables (GitHub secrets).
-    """
-    # The access code will be read from os.environ["COPA_ACCESS_CODE"].
-    raise NotImplementedError("TODO: fill in the Clerk sign-in steps")
+SCHEDULE_URL = "https://copa.retool.com/embedded/public/55172728-5a4a-43b1-baab-b4fc863de60c"
+SCHEDULE_QUERY = "queryName=Daysmart_Schedule_Data"
 
 
-def read_listings(page: Page) -> list[ClassListing]:
-    """Read every class on the schedule page (filtering happens elsewhere)."""
-    raise NotImplementedError("TODO: map the schedule markup to ClassListing")
-
-
-def fetch_listings() -> list[ClassListing]:
+def fetch_sessions() -> list[Session]:
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        # CHROMIUM_PATH is only for running locally against a preinstalled browser.
+        browser = p.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH") or None)
         try:
             page = browser.new_page()
-            page.goto(SCHEDULE_URL, wait_until="networkidle")
-            log_in(page)
-            page.goto(SCHEDULE_URL, wait_until="networkidle")
-            return read_listings(page)
+            with page.expect_response(lambda r: SCHEDULE_QUERY in r.url, timeout=90_000) as info:
+                page.goto(SCHEDULE_URL)
+            response = info.value
+            if not response.ok:
+                raise RuntimeError(f"Schedule request failed with HTTP {response.status}")
+            return parse_schedule(json.loads(response.text()))
         finally:
             browser.close()

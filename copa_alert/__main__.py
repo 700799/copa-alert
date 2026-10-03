@@ -1,41 +1,44 @@
-"""Entry point: python -m copa_alert
+"""Entry point: python -m copa_alert [--dry-run]
 
-Logs only counts, never class details, because Actions logs on a public repo
-are visible to anyone.
+--dry-run prints what would be emailed and doesn't send or save anything.
 """
 
 import sys
 from pathlib import Path
 
-from .classes import find_new, is_target, load_seen, save_seen
+from .classes import is_target, load_state, save_state, update
 from .notify import format_email, send_email
-from .scraper import fetch_listings
+from .scraper import fetch_sessions
 
 STATE_FILE = Path("seen.json")
 
 
 def main() -> int:
-    listings = fetch_listings()
-    targets = [c for c in listings if is_target(c)]
-    print(f"Read {len(listings)} classes, {len(targets)} are 12-18 on Fri-Sun.")
+    dry_run = "--dry-run" in sys.argv
+    sessions = fetch_sessions()
+    targets = [s for s in sessions if is_target(s)]
+    print(f"Read {len(sessions)} sessions, {len(targets)} are 12-19 on Fri-Sun.")
 
-    if not listings:
-        # Most likely a failed login or a changed page. Fail so GitHub emails
-        # about the broken run, and leave the stored state alone.
-        print("No classes found; not updating state.", file=sys.stderr)
+    if not sessions:
+        # Most likely the page changed. Fail so GitHub emails about the broken
+        # run, and leave the stored state alone.
+        print("No sessions found; not updating state.", file=sys.stderr)
         return 1
 
-    seen = load_seen(STATE_FILE)
-    if seen is None:
-        save_seen(STATE_FILE, {c.key() for c in targets})
+    state = load_state(STATE_FILE)
+    added, new_state = update(state, sessions)
+    if state is None:
         print("First run: saved baseline, no email sent.")
-        return 0
+    else:
+        print(f"{len(added)} newly added.")
 
-    new = find_new(listings, seen)
-    print(f"{len(new)} new.")
-    if new:
-        send_email(format_email(new))
-        save_seen(STATE_FILE, seen | {c.key() for c in new})
+    if dry_run:
+        if added:
+            print(format_email(added))
+        return 0
+    if added:
+        send_email(format_email(added))
+    save_state(STATE_FILE, new_state)
     return 0
 
 
