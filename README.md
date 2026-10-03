@@ -19,6 +19,9 @@ If a session you were emailed about later disappears from the schedule (for
 example, it filled up or was cancelled) while its date is still listed, the
 next email lists it under GONE, once.
 
+The same events are logged on a public page, `docs/index.html`, which
+GitHub Pages serves at https://700799.github.io/copa-alert/.
+
 ## Setup
 
 1. Add these under **Settings → Secrets and variables → Actions → Secrets**:
@@ -27,6 +30,8 @@ next email lists it under GONE, once.
    - `ALERT_TO` (optional): where to send alerts; defaults to `GMAIL_USER`
 2. Run **Actions → Check for new classes → Run workflow** once to record the
    baseline.
+3. For the log page: **Settings → Pages → Build and deployment**, set Source to
+   **Deploy from a branch**, branch **main**, folder **/docs**, and save.
 
 If a run finds no sessions at all (for example, the page changed), it fails
 without changing `seen.json`, and GitHub emails you about the failed run.

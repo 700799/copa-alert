@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .classes import is_target, load_state, save_state, update
+from .log_page import PAGE_FILE, update_page
 from .notify import format_email, send_email
 from .scraper import fetch_sessions
 
@@ -42,6 +43,8 @@ def main() -> int:
         return 0
     if added or gone:
         send_email(format_email(added, gone, now))
+    if added or gone or not PAGE_FILE.exists():
+        update_page(added, gone, now)
     save_state(STATE_FILE, new_state)
     return 0
 
