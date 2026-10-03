@@ -6,6 +6,7 @@ from email.message import EmailMessage
 from .classes import Alerted, Session
 
 BOOKING_URL = "https://apps.daysmartrecreation.com/dash/x/#/online/copa/login"
+REGISTER_URL = "https://apps.daysmartrecreation.com/dash/x/copa/group/register/{}"
 
 
 def _time(hhmm: str) -> str:
@@ -38,13 +39,15 @@ def format_email(added: list[Session], gone: list[Alerted], now: str) -> EmailMe
         for s in added:
             spots = f" · {s.spots_left} spot{'' if s.spots_left == '1' else 's'}" if s.spots_left else ""
             lines.append(f"  {_session(s)}{spots}")
+            if s.group_id:
+                lines.append(f"    Register: {REGISTER_URL.format(s.group_id)}")
         lines.append("")
     if gone:
         lines.append(f"GONE · no longer listed at {_when(now)}")
         for a in gone:
             lines.append(f"  {_session(a.session)} · found {_when(a.found_at)}")
         lines.append("")
-    lines.append(f"Book: {BOOKING_URL}")
+    lines.append(f"All sessions: {BOOKING_URL}")
     msg.set_content("\n".join(lines))
     return msg
 

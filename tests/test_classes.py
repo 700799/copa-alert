@@ -11,12 +11,12 @@ def make(event_id, day="2026-10-10", program=TEEN, name="SC: SoccerBot 360 (LV1)
 def test_parse_schedule():
     payload = [
         {
-            "cols": ["s_eventid", "programname", "teamname", "leaguedesc", "start_date", "s_eventstart", "s_eventend", "spots_left"],
-            "data": [[["1", "2"], [TEEN, "6 - 8yrs"], ["SC: Finishing (LV3)", None], ["x", "Soccer 6-8"], ["2026-10-10", "2026-10-11"], ["2026-10-10T09:00:00.000Z", "2026-10-11T10:00:00.000Z"], ["2026-10-10T09:30:00.000Z", "2026-10-11T10:45:00.000Z"], ["3", "1"]]],
+            "cols": ["s_eventhteamid", "s_eventid", "programname", "teamname", "leaguedesc", "start_date", "s_eventstart", "s_eventend", "spots_left"],
+            "data": [[["7701", "7600"], ["1", "2"], [TEEN, "6 - 8yrs"], ["SC: Finishing (LV3)", None], ["x", "Soccer 6-8"], ["2026-10-10", "2026-10-11"], ["2026-10-10T09:00:00.000Z", "2026-10-11T10:00:00.000Z"], ["2026-10-10T09:30:00.000Z", "2026-10-11T10:45:00.000Z"], ["3", "1"]]],
         }
     ]
     assert parse_schedule(payload) == [
-        Session("1", TEEN, "SC: Finishing (LV3)", "2026-10-10", "09:00", "09:30", "3"),
+        Session("1", TEEN, "SC: Finishing (LV3)", "2026-10-10", "09:00", "09:30", "3", "7701"),
         Session("2", "6 - 8yrs", "Soccer 6-8", "2026-10-11", "10:00", "10:45"),
     ]
 

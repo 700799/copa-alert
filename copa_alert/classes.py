@@ -26,6 +26,7 @@ class Session:
     start: str  # local wall time, HH:MM
     end: str
     spots_left: str = field(default="", compare=False)  # not part of identity
+    group_id: str = field(default="", compare=False)  # DaySmart registration page
 
     @classmethod
     def from_row(cls, row: dict) -> "Session":
@@ -38,6 +39,7 @@ class Session:
             start=row["s_eventstart"][11:16],
             end=row["s_eventend"][11:16],
             spots_left="" if row.get("spots_left") is None else str(row["spots_left"]),
+            group_id=str(row.get("s_eventhteamid") or ""),
         )
 
 
