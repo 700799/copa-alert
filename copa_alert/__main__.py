@@ -4,13 +4,16 @@
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from .classes import is_target, load_state, save_state, update
 from .notify import format_email, send_email
 from .scraper import fetch_sessions
 
 STATE_FILE = Path("seen.json")
+LOCAL_TZ = ZoneInfo("America/Los_Angeles")
 
 
 def main() -> int:
@@ -26,18 +29,19 @@ def main() -> int:
         return 1
 
     state = load_state(STATE_FILE)
-    added, new_state = update(state, sessions)
+    now = datetime.now(LOCAL_TZ).isoformat(timespec="minutes")
+    added, gone, new_state = update(state, sessions, now)
     if state is None:
         print("First run: saved baseline, no email sent.")
     else:
-        print(f"{len(added)} newly added.")
+        print(f"{len(added)} newly added, {len(gone)} gone.")
 
     if dry_run:
-        if added:
-            print(format_email(added))
+        if added or gone:
+            print(format_email(added, gone, now).get_content())
         return 0
-    if added:
-        send_email(format_email(added))
+    if added or gone:
+        send_email(format_email(added, gone, now))
     save_state(STATE_FILE, new_state)
     return 0
 

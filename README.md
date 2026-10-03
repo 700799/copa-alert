@@ -14,6 +14,11 @@ every day. To avoid an email for the regular schedule each week, a session
 counts as added only when it appears on a date an earlier check could
 already see. The first run only records a baseline.
 
+The email lists new sessions with the time they were found and spots left.
+If a session you were emailed about later disappears from the schedule (for
+example, it filled up or was cancelled) while its date is still listed, the
+next email lists it under GONE, once.
+
 ## Setup
 
 1. Add these under **Settings → Secrets and variables → Actions → Secrets**:

@@ -9,7 +9,7 @@ into view are recorded without an alert.
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 
@@ -25,6 +25,7 @@ class Session:
     date: str  # YYYY-MM-DD
     start: str  # local wall time, HH:MM
     end: str
+    spots_left: str = field(default="", compare=False)  # not part of identity
 
     @classmethod
     def from_row(cls, row: dict) -> "Session":
@@ -36,6 +37,7 @@ class Session:
             date=row["start_date"],
             start=row["s_eventstart"][11:16],
             end=row["s_eventend"][11:16],
+            spots_left="" if row.get("spots_left") is None else str(row["spots_left"]),
         )
 
 
@@ -50,10 +52,19 @@ def is_target(s: Session) -> bool:
     return s.program == TARGET_PROGRAM and date.fromisoformat(s.date).weekday() in TARGET_WEEKDAYS
 
 
+@dataclass(frozen=True)
+class Alerted:
+    """A session we emailed about, kept so we can say if it disappears."""
+
+    session: Session
+    found_at: str  # when it was first seen, e.g. "2026-10-03T14:15-07:00"
+
+
 @dataclass
 class State:
     seen: dict[str, str]  # event id -> date
     seen_through: str  # latest date visible in a previous check
+    alerted: dict[str, Alerted] = field(default_factory=dict)  # event id -> details
 
 
 def load_state(path: Path) -> State | None:
@@ -61,19 +72,28 @@ def load_state(path: Path) -> State | None:
     if not path.exists():
         return None
     raw = json.loads(path.read_text())
-    return State(seen=raw["seen"], seen_through=raw["seen_through"])
+    alerted = {k: Alerted(Session(**v["session"]), v["found_at"]) for k, v in raw.get("alerted", {}).items()}
+    return State(seen=raw["seen"], seen_through=raw["seen_through"], alerted=alerted)
 
 
 def save_state(path: Path, state: State) -> None:
-    path.write_text(json.dumps({"seen_through": state.seen_through, "seen": dict(sorted(state.seen.items()))}, indent=1) + "\n")
+    raw = {
+        "seen_through": state.seen_through,
+        "alerted": {k: asdict(v) for k, v in sorted(state.alerted.items())},
+        "seen": dict(sorted(state.seen.items())),
+    }
+    path.write_text(json.dumps(raw, indent=1) + "\n")
 
 
-def update(state: State | None, sessions: list[Session]) -> tuple[list[Session], State]:
-    """Return (newly added target sessions, new state)."""
+def update(state: State | None, sessions: list[Session], now: str) -> tuple[list[Session], list[Alerted], State]:
+    """Return (newly added target sessions, alerted sessions now gone, new state).
+
+    `now` is the check time, recorded as each new session's discovery time.
+    """
     targets = [s for s in sessions if is_target(s)]
     latest = max((s.date for s in sessions), default="")
     if state is None:
-        return [], State({s.event_id: s.date for s in targets}, latest)
+        return [], [], State({s.event_id: s.date for s in targets}, latest)
 
     added = []
     for s in targets:
@@ -86,4 +106,20 @@ def update(state: State | None, sessions: list[Session]) -> tuple[list[Session],
     earliest = min((s.date for s in sessions), default="")
     seen = {k: v for k, v in state.seen.items() if v >= earliest}
     seen.update({s.event_id: s.date for s in targets})
-    return added, State(seen, max(state.seen_through, latest))
+
+    # Sessions we alerted about that are no longer listed, though their date
+    # is still in the window. Each is reported once, then dropped.
+    current = {s.event_id for s in sessions}
+    gone = []
+    alerted = {}
+    for k, a in state.alerted.items():
+        if a.session.date < earliest:
+            continue
+        if k in current:
+            alerted[k] = a
+        else:
+            gone.append(a)
+    gone.sort(key=lambda a: (a.session.date, a.session.start, a.session.name))
+    alerted.update({s.event_id: Alerted(s, now) for s in added})
+
+    return added, gone, State(seen, max(state.seen_through, latest), alerted)
